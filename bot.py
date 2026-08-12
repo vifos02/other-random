@@ -133,8 +133,14 @@ def accept_cookies(page) -> None:
             continue
 
 
-def wait_for_captcha(page) -> None:
-    """Se detectar CAPTCHA ou bloqueio, pausa e pede resolução manual."""
+def wait_for_captcha(page, headless: bool = False) -> None:
+    """
+    Se detectar CAPTCHA ou bloqueio:
+    - Envia email de alerta
+    - Modo visível: aguarda resolução manual (até CAPTCHA_WAIT_MINUTES)
+    - Modo headless: aguarda CAPTCHA_WAIT_MINUTES e depois levanta exceção
+      para o loop principal recomeçar após um intervalo maior
+    """
     captcha_signals = [
         "iframe[src*='recaptcha']",
         "iframe[src*='captcha']",
@@ -145,7 +151,7 @@ def wait_for_captcha(page) -> None:
     ]
     block_phrases = [
         "access denied", "acesso bloqueado", "too many requests",
-        "troppi tentativi", "bloccato", "accesso negato", "403",
+        "troppi tentativi", "bloccato", "accesso negato",
         "you have been blocked", "sei stato bloccato",
     ]
 
@@ -153,25 +159,74 @@ def wait_for_captcha(page) -> None:
     page_text = page.content().lower()
     has_block = any(p in page_text for p in block_phrases)
 
-    if has_captcha or has_block:
-        screenshot(page, "captcha_ou_bloqueio")
+    if not has_captcha and not has_block:
+        return
+
+    kind = "CAPTCHA" if has_captcha else "bloqueio temporário"
+    wait_minutes = int(env("CAPTCHA_WAIT_MINUTES", "20"))
+
+    log.warning(f"{kind} detectado na página: {page.url}")
+    screenshot(page, "captcha_ou_bloqueio")
+
+    send_notification(
+        subject=f"⚠️ Prenotami — {kind} detectado",
+        body=(
+            f"{kind} detectado no Prenotami.\n\n"
+            f"{'Abra o computador e resolva no navegador.' if not headless else ''}\n"
+            f"O bot vai aguardar {wait_minutes} minutos e tentar novamente automaticamente.\n\n"
+            f"URL: {page.url}"
+        ),
+    )
+
+    if not headless:
+        # Com navegador visível: aguarda resolução manual ou timeout
         print("\n" + "="*60)
-        print("⚠️  CAPTCHA ou bloqueio detectado!")
-        print("   O navegador está aberto — resolva o CAPTCHA manualmente.")
-        print("   Depois volte aqui e pressione ENTER para continuar.")
+        print(f"⚠️  {kind.upper()} DETECTADO!")
+        print(f"   Resolva no navegador. O bot aguarda até {wait_minutes} minutos.")
+        print(f"   (ou pressione ENTER agora se já resolveu)")
         print("="*60)
-        input("   [Pressione ENTER após resolver o CAPTCHA] ")
-        page.wait_for_load_state("networkidle", timeout=30000)
-        human_delay(1000, 2000)
+
+        import select as _select
+        deadline = time.time() + wait_minutes * 60
+        captcha_gone = False
+        while time.time() < deadline:
+            # Verifica se CAPTCHA sumiu da página
+            still_there = any(page.query_selector(s) for s in captcha_signals)
+            if not still_there:
+                captcha_gone = True
+                break
+            # Verifica se usuário pressionou Enter (não bloqueia)
+            if _select.select([sys.stdin], [], [], 2)[0]:
+                sys.stdin.readline()
+                captcha_gone = True
+                break
+            time.sleep(2)
+
+        if captcha_gone:
+            log.info("CAPTCHA resolvido, continuando...")
+            page.wait_for_load_state("networkidle", timeout=15000)
+            human_delay(1000, 2000)
+        else:
+            log.warning(f"CAPTCHA não resolvido em {wait_minutes} min — abortando tentativa")
+            raise CaptchaTimeout("CAPTCHA não resolvido no tempo limite")
+    else:
+        # Headless: espera o tempo configurado e levanta exceção
+        log.warning(f"Modo headless — aguardando {wait_minutes} min para o bloqueio expirar...")
+        time.sleep(wait_minutes * 60)
+        raise CaptchaTimeout(f"{kind} em modo headless — tentando novamente")
 
 
-def login(page, email: str, password: str) -> bool:
+class CaptchaTimeout(Exception):
+    pass
+
+
+def login(page, email: str, password: str, headless: bool = True) -> bool:
     log.info("Fazendo login no Prenotami...")
     try:
         page.goto(LOGIN_URL, wait_until="networkidle", timeout=30000)
         human_delay(1500, 2500)
         accept_cookies(page)
-        wait_for_captcha(page)
+        wait_for_captcha(page, headless)
 
         # Preencher email
         filled_email = False
@@ -216,9 +271,7 @@ def login(page, email: str, password: str) -> bool:
             return False
 
         human_delay(600, 1000)
-
-        # Verificar se há CAPTCHA antes de submeter
-        wait_for_captcha(page)
+        wait_for_captcha(page, headless)
 
         # Submeter
         submitted = False
@@ -250,12 +303,9 @@ def login(page, email: str, password: str) -> bool:
 
         page.wait_for_load_state("networkidle", timeout=20000)
         human_delay(2000, 3000)
-
-        # Verificar CAPTCHA pós-submit
-        wait_for_captcha(page)
+        wait_for_captcha(page, headless)
 
         # Detectar sucesso pela ausência do campo de senha
-        # (Prenotami mantém URL /Home após login)
         login_form_present = page.query_selector("input[type='password']")
         if login_form_present and login_form_present.is_visible():
             err = page.query_selector(".alert-danger, .alert-warning, .text-danger, .validation-summary-errors")
@@ -267,6 +317,8 @@ def login(page, email: str, password: str) -> bool:
         log.info(f"Login OK — URL: {page.url}")
         return True
 
+    except CaptchaTimeout:
+        raise
     except PlaywrightTimeout:
         log.error("Timeout durante o login")
         screenshot(page, "login_timeout")
@@ -387,9 +439,9 @@ def navigate_to_service(page, service: dict) -> bool:
         return False
 
 
-def detect_slots(page) -> bool:
+def detect_slots(page, headless: bool = True) -> bool:
     """Retorna True se há vagas visíveis na página atual."""
-    wait_for_captcha(page)
+    wait_for_captcha(page, headless)
 
     content = page.content().lower()
 
@@ -507,7 +559,7 @@ def complete_booking(page) -> bool:
     return any(p in final for p in SUCCESS_PHRASES)
 
 
-def check_and_book(page, service: dict) -> bool:
+def check_and_book(page, service: dict, headless: bool = True) -> bool:
     """
     Navega para o serviço, detecta vagas e, se houver, conclui o agendamento.
     Retorna True somente se o agendamento foi confirmado.
@@ -520,7 +572,7 @@ def check_and_book(page, service: dict) -> bool:
         log.warning("Redirecionado para login — sessão expirou")
         return False
 
-    if not detect_slots(page):
+    if not detect_slots(page, headless):
         log.info("Sem vagas disponíveis nesta tentativa")
         return False
 
@@ -574,7 +626,7 @@ def run_bot(email: str, password: str, service_id: str, service_keywords: list[s
         log.info("=== Bot Prenotami — Benefício de Lei para Menores ===")
         log.info(f"Conta: {email} | Intervalo: {interval}s | Headless: {headless}")
 
-        if not login(page, email, password):
+        if not login(page, email, password, headless):
             log.error("Login falhou. Verifique as credenciais no .env")
             browser.close()
             return
@@ -603,12 +655,17 @@ def run_bot(email: str, password: str, service_id: str, service_keywords: list[s
             log.info(f"--- Tentativa #{attempt} | {now} ---")
 
             try:
-                booked = check_and_book(page, target_service)
+                booked = check_and_book(page, target_service, headless)
 
                 if booked:
                     log.info("Bot encerrado com sucesso — consulado agendado!")
                     break
 
+                consecutive_errors = 0
+
+            except CaptchaTimeout as e:
+                # Após aguardar CAPTCHA, volta ao início do loop normalmente
+                log.warning(f"Retomando após pausa de CAPTCHA: {e}")
                 consecutive_errors = 0
 
             except PlaywrightTimeout as e:
@@ -623,7 +680,7 @@ def run_bot(email: str, password: str, service_id: str, service_keywords: list[s
             if consecutive_errors >= 3:
                 log.warning("Refazendo login por erros consecutivos...")
                 try:
-                    if login(page, email, password):
+                    if login(page, email, password, headless):
                         consecutive_errors = 0
                         # Reobtém referência ao serviço após novo login
                         if not service_id:

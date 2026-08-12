@@ -475,7 +475,6 @@ def run_bot(email: str, password: str, service_id: str, service_keywords: list[s
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            executable_path="/opt/pw-browsers/chromium",
             headless=headless,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )

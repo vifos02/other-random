@@ -1,114 +1,110 @@
-# Bot de Agendamento - Prenotami
+# Bot Prenotami — Benefício de Lei para Menores
 
-Automatiza a busca e agendamento de vagas no sistema https://prenotami.esteri.it
+Monitora automaticamente o sistema https://prenotami.esteri.it e agenda assim que uma vaga aparecer para o serviço **Benefício de Lei para Menores** (Beneficio di legge per minori).
 
-## Requisitos
+---
 
-- Python 3.9+
-- pip
-
-## Instalação
+## Instalação (faça uma única vez)
 
 ```bash
-# 1. Instalar dependências
+# 1. Instalar Python (se não tiver): https://python.org/downloads
+# 2. Instalar dependências
 pip install -r requirements.txt
 
-# 2. Instalar o navegador (Chromium)
+# 3. Instalar o Chromium (navegador usado pelo bot)
 playwright install chromium
 
-# 3. Configurar credenciais
+# 4. Copiar e editar as configurações
 cp .env.example .env
-# Edite o arquivo .env com seu email e senha do Prenotami
 ```
 
-## Configuração (.env)
-
+Abra o arquivo `.env` em qualquer editor de texto e preencha:
 ```
 PRENOTAMI_EMAIL=seu@email.com
 PRENOTAMI_PASSWORD=sua_senha
-
-# Deixe vazio para o bot listar todos os serviços disponíveis na primeira execução
-PRENOTAMI_SERVICE_ID=
-
-# Intervalo entre verificações em segundos (mínimo recomendado: 60)
-CHECK_INTERVAL=90
-
-# Headless: true = navegador invisível, false = ver o navegador
-HEADLESS=true
 ```
 
-## Como descobrir o SERVICE_ID
+---
 
-1. Execute o bot **sem** `PRENOTAMI_SERVICE_ID` configurado
-2. Na primeira execução, ele lista todos os serviços disponíveis na sua conta
-3. Identifique o serviço desejado e anote o ID da URL ao clicar nele no site
-4. Configure `PRENOTAMI_SERVICE_ID` com esse número
-
-## Execução
+## Executar o bot
 
 ```bash
-# Modo padrão (lê o .env)
+# Modo padrão (lê o .env, navegador invisível)
 python bot.py
 
-# Mostrar o navegador (útil para depurar)
+# Ver o navegador funcionando (útil para conferir se está certo)
 python bot.py --no-headless
 
-# Passar credenciais direto na linha de comando
-python bot.py --email seu@email.com --password sua_senha --service-id 1234
-
-# Ver todas as opções
+# Ajuda com todas as opções
 python bot.py --help
 ```
 
-## O que o bot faz
+---
 
-1. Faz login no Prenotami com suas credenciais
-2. Navega para o serviço configurado
-3. Verifica se há vagas disponíveis
-4. Se **não há vagas**: aguarda o intervalo configurado e tenta de novo
-5. Se **há vaga**: seleciona e confirma o agendamento automaticamente
-6. Salva screenshots no momento da descoberta e confirmação
-7. Envia email de notificação (se configurado)
-8. Registra tudo em `prenotami_bot.log`
+## Como o bot encontra o serviço
 
-## Notificação por Email (opcional)
+Na primeira execução ele lista **todos os serviços** do seu perfil e procura
+automaticamente por "beneficio di legge" / "minori" / "legge per minori".
 
-Para receber email quando agendar, configure no `.env`:
+Se o serviço não for encontrado pelo nome, faça isso manualmente:
+1. Acesse https://prenotami.esteri.it e faça login
+2. Clique no serviço "Benefício de Lei para Menores"
+3. Copie o número que aparece na URL — ex: `.../Services/**1234**`
+4. Adicione ao `.env`: `PRENOTAMI_SERVICE_ID=1234`
+
+---
+
+## Rodar em segundo plano (recomendado)
+
+**Linux / Mac:**
+```bash
+nohup python bot.py > prenotami_bot.log 2>&1 &
+echo "Bot rodando! PID: $!"
+
+# Acompanhar o log em tempo real
+tail -f prenotami_bot.log
+
+# Parar o bot
+pkill -f bot.py
+```
+
+**Windows (PowerShell):**
+```powershell
+Start-Process python -ArgumentList "bot.py" -RedirectStandardOutput "bot.log" -RedirectStandardError "bot_err.log" -WindowStyle Hidden
+```
+
+---
+
+## O que acontece quando uma vaga aparece
+
+1. Bot detecta a disponibilidade
+2. Salva screenshot: `vaga_encontrada_YYYYMMDD_HHMMSS.png`
+3. Seleciona o primeiro slot disponível
+4. Avança pelas etapas de confirmação
+5. Salva screenshot de confirmação: `agendamento_confirmado_YYYYMMDD_HHMMSS.png`
+6. Envia email (se configurado)
+7. Encerra automaticamente
+
+---
+
+## Notificação por email (Gmail)
 
 ```
 NOTIFY_EMAIL=seu@email.com
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=seu@gmail.com
-SMTP_PASSWORD=senha_de_app_gmail
+SMTP_PASSWORD=xxxx xxxx xxxx xxxx   ← Senha de App, não a senha normal
 ```
 
-> Para Gmail, use uma "Senha de app" (não sua senha normal).
-> Acesse: Conta Google → Segurança → Verificação em 2 etapas → Senhas de app
+Para criar uma Senha de App no Gmail:
+**Conta Google → Segurança → Verificação em 2 etapas → Senhas de app**
 
-## Rodar em segundo plano (Linux/Mac)
+---
 
-```bash
-# Com nohup (fecha o terminal, bot continua rodando)
-nohup python bot.py > prenotami_bot.log 2>&1 &
+## Dicas
 
-# Ver o log em tempo real
-tail -f prenotami_bot.log
-
-# Parar o bot
-kill $(pgrep -f bot.py)
-```
-
-## Rodar em segundo plano (Windows)
-
-```powershell
-# PowerShell - roda em background e salva log
-Start-Process python -ArgumentList "bot.py" -RedirectStandardOutput "bot.log" -WindowStyle Hidden
-```
-
-## Notas importantes
-
-- O bot adiciona variação aleatória no intervalo (+/- 15s) para evitar padrões
-- Sessões expiradas são detectadas e o bot faz re-login automaticamente
-- Screenshots são salvos automaticamente quando uma vaga é encontrada
-- O intervalo mínimo recomendado é 60 segundos para não sobrecarregar o servidor
+- As vagas costumam aparecer às **terças-feiras à meia-noite** (horário de Roma = 20h de Brasília)
+- Deixe o bot rodando em background desde as 19h30 para não perder
+- O bot adiciona variação aleatória de ±20s para evitar padrões de acesso
+- Tudo fica registrado em `prenotami_bot.log`

@@ -35,14 +35,15 @@ BASE_URL = "https://prenotami.esteri.it"
 LOGIN_URL = f"{BASE_URL}/Home"
 SERVICES_URL = f"{BASE_URL}/Services"
 
-# Palavras-chave para identificar o serviço de Benefício de Lei para Menores
+# Palavras-chave para identificar o serviço exato no Prenotami
+# Nome completo: "Cittadinanza per beneficio di legge (figli minori nati all'estero da cittadini iure sanguinis)"
+# Categoria: "Cittadinanza per discendenza"
 SERVICE_KEYWORDS = [
     "beneficio di legge",
-    "beneficio legge",
-    "legge per minori",
-    "minori",
-    "benefit",
-    "benefício",
+    "figli minori",
+    "minori nati all'estero",
+    "iure sanguinis",
+    "beneficio di legge (figli",
 ]
 
 # Mensagens que indicam ausência de vagas

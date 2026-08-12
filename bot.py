@@ -133,22 +133,47 @@ def accept_cookies(page) -> None:
             continue
 
 
+def wait_for_captcha(page) -> None:
+    """Se detectar CAPTCHA ou bloqueio, pausa e pede resolução manual."""
+    captcha_signals = [
+        "iframe[src*='recaptcha']",
+        "iframe[src*='captcha']",
+        "iframe[src*='hcaptcha']",
+        ".g-recaptcha",
+        "#captcha",
+        "[class*='captcha']",
+    ]
+    block_phrases = [
+        "access denied", "acesso bloqueado", "too many requests",
+        "troppi tentativi", "bloccato", "accesso negato", "403",
+        "you have been blocked", "sei stato bloccato",
+    ]
+
+    has_captcha = any(page.query_selector(s) for s in captcha_signals)
+    page_text = page.content().lower()
+    has_block = any(p in page_text for p in block_phrases)
+
+    if has_captcha or has_block:
+        screenshot(page, "captcha_ou_bloqueio")
+        print("\n" + "="*60)
+        print("⚠️  CAPTCHA ou bloqueio detectado!")
+        print("   O navegador está aberto — resolva o CAPTCHA manualmente.")
+        print("   Depois volte aqui e pressione ENTER para continuar.")
+        print("="*60)
+        input("   [Pressione ENTER após resolver o CAPTCHA] ")
+        page.wait_for_load_state("networkidle", timeout=30000)
+        human_delay(1000, 2000)
+
+
 def login(page, email: str, password: str) -> bool:
     log.info("Fazendo login no Prenotami...")
     try:
         page.goto(LOGIN_URL, wait_until="networkidle", timeout=30000)
-        human_delay(1000, 1800)
+        human_delay(1500, 2500)
         accept_cookies(page)
+        wait_for_captcha(page)
 
-        # Dump dos inputs para debug
-        inputs = page.evaluate("""
-            () => [...document.querySelectorAll('input')].map(i => ({
-                name: i.name, id: i.id, type: i.type, placeholder: i.placeholder
-            }))
-        """)
-        log.info(f"Inputs na página de login: {inputs}")
-
-        # Preencher email — tenta por name, id e type
+        # Preencher email
         filled_email = False
         for sel in ["input[name='Email']", "input[name='email']", "#Email", "#email",
                     "input[type='email']", "input[placeholder*='mail' i]"]:
@@ -157,7 +182,7 @@ def login(page, email: str, password: str) -> bool:
                 if el and el.is_visible():
                     el.triple_click()
                     el.fill(email)
-                    human_delay(400, 700)
+                    human_delay(500, 900)
                     filled_email = True
                     log.info(f"Email preenchido via '{sel}'")
                     break
@@ -165,7 +190,7 @@ def login(page, email: str, password: str) -> bool:
                 continue
 
         if not filled_email:
-            log.error("Não encontrou campo de email na página")
+            log.error("Campo de email não encontrado")
             screenshot(page, "login_debug")
             return False
 
@@ -178,7 +203,7 @@ def login(page, email: str, password: str) -> bool:
                 if el and el.is_visible():
                     el.triple_click()
                     el.fill(password)
-                    human_delay(400, 700)
+                    human_delay(500, 900)
                     filled_pw = True
                     log.info(f"Senha preenchida via '{sel}'")
                     break
@@ -186,13 +211,16 @@ def login(page, email: str, password: str) -> bool:
                 continue
 
         if not filled_pw:
-            log.error("Não encontrou campo de senha na página")
+            log.error("Campo de senha não encontrado")
             screenshot(page, "login_debug")
             return False
 
-        human_delay(500, 900)
+        human_delay(600, 1000)
 
-        # Submeter — tenta botão, depois Enter
+        # Verificar se há CAPTCHA antes de submeter
+        wait_for_captcha(page)
+
+        # Submeter
         submitted = False
         for sel in [
             "button[type='submit']",
@@ -214,7 +242,6 @@ def login(page, email: str, password: str) -> bool:
                 continue
 
         if not submitted:
-            # Fallback: pressionar Enter no campo senha
             pw_el = page.query_selector("input[type='password']")
             if pw_el:
                 pw_el.press("Enter")
@@ -222,14 +249,17 @@ def login(page, email: str, password: str) -> bool:
                 log.info("Formulário submetido via Enter")
 
         page.wait_for_load_state("networkidle", timeout=20000)
-        human_delay(1500, 2500)
+        human_delay(2000, 3000)
 
-        # Detectar login bem-sucedido pela AUSÊNCIA do formulário de login
-        # (o Prenotami pode manter URL /Home após login)
+        # Verificar CAPTCHA pós-submit
+        wait_for_captcha(page)
+
+        # Detectar sucesso pela ausência do campo de senha
+        # (Prenotami mantém URL /Home após login)
         login_form_present = page.query_selector("input[type='password']")
         if login_form_present and login_form_present.is_visible():
             err = page.query_selector(".alert-danger, .alert-warning, .text-danger, .validation-summary-errors")
-            msg = err.inner_text().strip() if err and err.is_visible() else "formulário de login ainda visível"
+            msg = err.inner_text().strip() if err and err.is_visible() else "formulário ainda visível após submit"
             log.error(f"Login falhou: {msg}")
             screenshot(page, "login_falhou")
             return False
@@ -359,6 +389,8 @@ def navigate_to_service(page, service: dict) -> bool:
 
 def detect_slots(page) -> bool:
     """Retorna True se há vagas visíveis na página atual."""
+    wait_for_captcha(page)
+
     content = page.content().lower()
 
     for phrase in NO_SLOTS_PHRASES:

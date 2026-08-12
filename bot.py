@@ -137,61 +137,109 @@ def login(page, email: str, password: str) -> bool:
     log.info("Fazendo login no Prenotami...")
     try:
         page.goto(LOGIN_URL, wait_until="networkidle", timeout=30000)
-        human_delay()
+        human_delay(1000, 1800)
         accept_cookies(page)
 
-        # Preencher email
-        for sel in ["input[name='Email']", "input[type='email']", "#Email", "#login-email"]:
+        # Dump dos inputs para debug
+        inputs = page.evaluate("""
+            () => [...document.querySelectorAll('input')].map(i => ({
+                name: i.name, id: i.id, type: i.type, placeholder: i.placeholder
+            }))
+        """)
+        log.info(f"Inputs na página de login: {inputs}")
+
+        # Preencher email — tenta por name, id e type
+        filled_email = False
+        for sel in ["input[name='Email']", "input[name='email']", "#Email", "#email",
+                    "input[type='email']", "input[placeholder*='mail' i]"]:
             try:
                 el = page.query_selector(sel)
                 if el and el.is_visible():
+                    el.triple_click()
                     el.fill(email)
-                    human_delay(400, 800)
+                    human_delay(400, 700)
+                    filled_email = True
+                    log.info(f"Email preenchido via '{sel}'")
                     break
             except Exception:
                 continue
+
+        if not filled_email:
+            log.error("Não encontrou campo de email na página")
+            screenshot(page, "login_debug")
+            return False
 
         # Preencher senha
-        for sel in ["input[name='Password']", "input[type='password']", "#Password", "#login-password"]:
+        filled_pw = False
+        for sel in ["input[name='Password']", "input[name='password']", "#Password", "#password",
+                    "input[type='password']"]:
             try:
                 el = page.query_selector(sel)
                 if el and el.is_visible():
+                    el.triple_click()
                     el.fill(password)
-                    human_delay(400, 800)
+                    human_delay(400, 700)
+                    filled_pw = True
+                    log.info(f"Senha preenchida via '{sel}'")
                     break
             except Exception:
                 continue
 
-        # Submeter
+        if not filled_pw:
+            log.error("Não encontrou campo de senha na página")
+            screenshot(page, "login_debug")
+            return False
+
+        human_delay(500, 900)
+
+        # Submeter — tenta botão, depois Enter
+        submitted = False
         for sel in [
             "button[type='submit']",
             "input[type='submit']",
             "button:has-text('Accedi')",
+            "button:has-text('ACCEDI')",
             "button:has-text('Login')",
-            ".btn-login",
+            "button:has-text('Entra')",
+            ".btn-primary",
         ]:
             try:
                 btn = page.query_selector(sel)
                 if btn and btn.is_visible():
                     btn.click()
+                    submitted = True
+                    log.info(f"Formulário submetido via '{sel}'")
                     break
             except Exception:
                 continue
 
-        page.wait_for_load_state("networkidle", timeout=20000)
-        human_delay(1000, 2000)
+        if not submitted:
+            # Fallback: pressionar Enter no campo senha
+            pw_el = page.query_selector("input[type='password']")
+            if pw_el:
+                pw_el.press("Enter")
+                submitted = True
+                log.info("Formulário submetido via Enter")
 
-        if "login" in page.url.lower() or page.url.rstrip("/") == LOGIN_URL.rstrip("/"):
-            err = page.query_selector(".alert-danger, .text-danger, [class*='error']")
-            msg = err.inner_text() if err and err.is_visible() else "verifique credenciais"
+        page.wait_for_load_state("networkidle", timeout=20000)
+        human_delay(1500, 2500)
+
+        # Detectar login bem-sucedido pela AUSÊNCIA do formulário de login
+        # (o Prenotami pode manter URL /Home após login)
+        login_form_present = page.query_selector("input[type='password']")
+        if login_form_present and login_form_present.is_visible():
+            err = page.query_selector(".alert-danger, .alert-warning, .text-danger, .validation-summary-errors")
+            msg = err.inner_text().strip() if err and err.is_visible() else "formulário de login ainda visível"
             log.error(f"Login falhou: {msg}")
+            screenshot(page, "login_falhou")
             return False
 
-        log.info(f"Login OK — URL atual: {page.url}")
+        log.info(f"Login OK — URL: {page.url}")
         return True
 
     except PlaywrightTimeout:
         log.error("Timeout durante o login")
+        screenshot(page, "login_timeout")
         return False
     except Exception as e:
         log.error(f"Erro no login: {e}")

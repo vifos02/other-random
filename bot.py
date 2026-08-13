@@ -228,6 +228,26 @@ def login(page, email: str, password: str, headless: bool = True) -> bool:
         accept_cookies(page)
         wait_for_captcha(page, headless)
 
+        # Clicar no botão "EFFETTUARE IL LOGIN" para abrir o formulário
+        for sel in [
+            "a:has-text('EFFETTUARE IL LOGIN')",
+            "button:has-text('EFFETTUARE IL LOGIN')",
+            "a:has-text('LOGIN')",
+            ".login-button",
+            "a[href*='login' i]",
+            "a[href*='Login']",
+        ]:
+            try:
+                btn = page.query_selector(sel)
+                if btn and btn.is_visible():
+                    btn.click()
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                    human_delay(1000, 1800)
+                    log.info(f"Botão de login clicado via '{sel}'")
+                    break
+            except Exception:
+                continue
+
         # Preencher email
         filled_email = False
         for sel in ["input[name='Email']", "input[name='email']", "#Email", "#email",

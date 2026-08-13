@@ -46,30 +46,103 @@ SERVICE_KEYWORDS = [
     "beneficio di legge (figli",
 ]
 
-# Mensagens que indicam ausência de vagas
+# Mensagens que indicam ausência de vagas (IT / EN / ES / PT / DE / FR)
 NO_SLOTS_PHRASES = [
+    # Italiano
     "non ci sono appuntamenti disponibili",
     "nessuna disponibilità",
-    "no appointments available",
-    "não há vagas",
-    "no hay citas disponibles",
-    "there are no available",
-    "keine termine verfügbar",
+    "nessun appuntamento disponibile",
     "al momento non",
     "momentaneamente non",
     "non disponibile",
+    "non sono disponibili",
+    "nessuno slot",
+    # Inglês
+    "no appointments available",
+    "there are no available",
+    "no available slots",
+    "no slots available",
+    "no dates available",
+    "currently no appointments",
+    # Espanhol
+    "no hay citas disponibles",
+    "no hay fechas disponibles",
+    "no hay horarios disponibles",
+    "no existen citas",
+    "sin disponibilidad",
+    # Português
+    "não há vagas",
+    "sem vagas disponíveis",
+    "nenhuma vaga disponível",
+    # Alemão
+    "keine termine verfügbar",
+    "keine verfügbaren termine",
+    # Francês
+    "aucun rendez-vous disponible",
+    "pas de disponibilité",
 ]
 
-# Frases que confirmam agendamento bem-sucedido
+# Frases que confirmam agendamento bem-sucedido (IT / EN / ES / PT)
 SUCCESS_PHRASES = [
+    # Italiano
     "appuntamento confermato",
     "prenotazione confermata",
+    "prenotato con successo",
+    "la sua prenotazione",
+    "conferma della prenotazione",
+    "appuntamento registrato",
+    # Inglês
     "appointment confirmed",
     "booking confirmed",
-    "prenotato con successo",
     "successfully booked",
-    "la prenotazione",
-    "conferma della prenotazione",
+    "your appointment has been",
+    "reservation confirmed",
+    # Espanhol
+    "cita confirmada",
+    "reserva confirmada",
+    "su cita ha sido",
+    "confirmación de cita",
+    # Português
+    "agendamento confirmado",
+    "consulta confirmada",
+]
+
+# Textos do botão de login em todos os idiomas
+LOGIN_BUTTON_TEXTS = [
+    "EFFETTUARE IL LOGIN",        # Italiano
+    "LOGIN",
+    "ACCEDI",
+    "Accedi",
+    "LOG IN",
+    "SIGN IN",
+    "Sign in",
+    "INGRESAR",                    # Espanhol
+    "Iniciar sesión",
+    "ENTRAR",
+    "Entrar",
+    "SE CONNECTER",                # Francês
+    "EINLOGGEN",                   # Alemão
+]
+
+# Textos dos botões de navegação no wizard de agendamento
+NEXT_BUTTON_TEXTS = [
+    "Avanti", "AVANTI",            # Italiano
+    "Next", "NEXT",                # Inglês
+    "Siguiente", "SIGUIENTE",      # Espanhol
+    "Suivant",                     # Francês
+    "Weiter",                      # Alemão
+]
+
+CONFIRM_BUTTON_TEXTS = [
+    "Conferma", "CONFERMA",        # Italiano
+    "Prenota", "PRENOTA",
+    "Confirm", "CONFIRM",          # Inglês
+    "Book", "BOOK",
+    "Confirmar", "CONFIRMAR",      # Espanhol
+    "Reservar",
+    "Confirmer",                   # Francês
+    "Bestätigen",                  # Alemão
+    "OK",
 ]
 
 
@@ -234,15 +307,13 @@ def login(page, email: str, password: str, headless: bool = True) -> bool:
         accept_cookies(page)
         wait_for_captcha(page, headless)
 
-        # Clicar no botão "EFFETTUARE IL LOGIN" para abrir o formulário
-        for sel in [
-            "a:has-text('EFFETTUARE IL LOGIN')",
-            "button:has-text('EFFETTUARE IL LOGIN')",
-            "a:has-text('LOGIN')",
-            ".login-button",
-            "a[href*='login' i]",
-            "a[href*='Login']",
-        ]:
+        # Clicar no botão de acesso (multilíngue) para abrir o formulário
+        login_selectors = (
+            [f"a:has-text('{t}')" for t in LOGIN_BUTTON_TEXTS] +
+            [f"button:has-text('{t}')" for t in LOGIN_BUTTON_TEXTS] +
+            [".login-button", "a[href*='UserArea']", "a[href*='login' i]"]
+        )
+        for sel in login_selectors:
             try:
                 btn = page.query_selector(sel)
                 if btn and btn.is_visible():
@@ -299,17 +370,14 @@ def login(page, email: str, password: str, headless: bool = True) -> bool:
         human_delay(600, 1000)
         wait_for_captcha(page, headless)
 
-        # Submeter
+        # Submeter (multilíngue)
+        submit_selectors = (
+            ["button[type='submit']", "input[type='submit']", ".btn-primary"] +
+            [f"button:has-text('{t}')" for t in LOGIN_BUTTON_TEXTS] +
+            ["button:has-text('Entra')", "button:has-text('Entrar')"]
+        )
         submitted = False
-        for sel in [
-            "button[type='submit']",
-            "input[type='submit']",
-            "button:has-text('Accedi')",
-            "button:has-text('ACCEDI')",
-            "button:has-text('Login')",
-            "button:has-text('Entra')",
-            ".btn-primary",
-        ]:
+        for sel in submit_selectors:
             try:
                 btn = page.query_selector(sel)
                 if btn and btn.is_visible():
@@ -544,8 +612,9 @@ def complete_booking(page) -> bool:
         except Exception:
             continue
 
-    # 2. Avançar por cada etapa do wizard (Avanti / Conferma / Prenota)
-    for step in range(5):
+    # 2. Avançar por cada etapa do wizard (multilíngue)
+    all_nav_texts = NEXT_BUTTON_TEXTS + CONFIRM_BUTTON_TEXTS
+    for step in range(6):
         human_delay(800, 1500)
         page.wait_for_load_state("networkidle", timeout=15000)
 
@@ -554,7 +623,7 @@ def complete_booking(page) -> bool:
             return True
 
         clicked = False
-        for btn_text in ["Conferma", "Avanti", "Prenota", "Next", "Confirm", "OK"]:
+        for btn_text in all_nav_texts:
             try:
                 btn = page.query_selector(
                     f"button:has-text('{btn_text}'), "
@@ -570,7 +639,6 @@ def complete_booking(page) -> bool:
                 continue
 
         if not clicked:
-            # Tentar submit genérico
             try:
                 btn = page.query_selector("button[type='submit'], input[type='submit']")
                 if btn and btn.is_visible() and not btn.is_disabled():

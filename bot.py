@@ -153,6 +153,12 @@ def wait_for_captcha(page, headless: bool = False) -> None:
         "access denied", "acesso bloqueado", "too many requests",
         "troppi tentativi", "bloccato", "accesso negato",
         "you have been blocked", "sei stato bloccato",
+        "accesso temporaneamente limitato",
+        "traffico verso questo servizio",
+        "potenzialmente automatizzato",
+        "verifica captcha",
+        "sono un essere umano",
+        "incident id",
     ]
 
     has_captcha = any(page.query_selector(s) for s in captcha_signals)
